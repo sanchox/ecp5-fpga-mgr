@@ -13,8 +13,6 @@
 
 #include "lattice/SSPIEm.h"
 
-//#define _SPIDEV_REPLACE_
-
 struct ecp5
 {
 	struct spi_device *spi;
@@ -28,31 +26,6 @@ struct ecp5
 };
 
 struct spi_device *current_programming_ecp5;
-
-#ifdef _SPIDEV_REPLACE_
-struct spi_master *_spi_master = NULL;
-struct spi_device *created_ecp5_spi_dev = NULL;
-
-static struct spi_board_info ecp5_spi_device __initdata =
-{
-		.modalias =	"ecp5-device",
-		.max_speed_hz =	30000000,
-		.bus_num =	1,
-		.chip_select = 0,
-		.controller_data = 0,
-		.mode =	SPI_MODE_0,
-};
-
-static struct spi_board_info generic_spi_device =
-{
-		.modalias =	"spidev",
-		.max_speed_hz =	30000000,
-		.bus_num =	1,
-		.chip_select = 0,
-		.controller_data = 0,
-		.mode =	SPI_MODE_0,
-};
-#endif
 
 /*
  * File operations
@@ -289,9 +262,6 @@ static int __devinit ecp5_probe(struct spi_device *spi)
 	ecp5_info->algo_char_device.minor = MISC_DYNAMIC_MINOR;
 	algo_cdev_name = kzalloc(64, GFP_KERNEL);
 	if (!algo_cdev_name) return (-ENOMEM);
-//	algo_cdev_name[0] = 'a';
-//	algo_cdev_name[1] = 'b';
-//	algo_cdev_name[2] = 0;
 	sprintf(algo_cdev_name, "ecp5-spi%d.%d-algo", spi->master->bus_num, spi->chip_select);
 	ecp5_info->algo_char_device.name = algo_cdev_name;
 	ecp5_info->algo_char_device.fops = &algo_fops;
@@ -304,9 +274,6 @@ static int __devinit ecp5_probe(struct spi_device *spi)
 	ecp5_info->data_char_device.minor = MISC_DYNAMIC_MINOR;
 	data_cdev_name = kzalloc(64, GFP_KERNEL);
 	if (!data_cdev_name) return (-ENOMEM);
-//	data_cdev_name[0] = 'a';
-//	data_cdev_name[1] = 'c';
-//	data_cdev_name[2] = 0;
 	sprintf(data_cdev_name, "ecp5-spi%d.%d-data", spi->master->bus_num, spi->chip_select);
 	ecp5_info->data_char_device.name = data_cdev_name;
 	ecp5_info->data_char_device.fops = &data_fops;
@@ -391,11 +358,6 @@ static int __init ecp5_sspi_init(void)
 {
 	int err_code;
 
-#ifdef _SPIDEV_REPLACE_
-	struct device *d;
-	char _exist_dev_name[64];
-#endif
-
 	pr_info("ECP5: driver initialization\n");
 
 	err_code = spi_register_driver(&ecp5_driver);
@@ -403,26 +365,6 @@ static int __init ecp5_sspi_init(void)
 		pr_err("can't register spi driver\n");
 		return (err_code);
 	}
-
-#ifdef _SPIDEV_REPLACE_
-	_spi_master = spi_busnum_to_master(ecp5_spi_device.bus_num);
-
-	/* Search for already exist CS */
-	sprintf(_exist_dev_name,"%s.%u", dev_name(&(_spi_master->dev)),
-			ecp5_spi_device.chip_select);
-
-	d = bus_find_device_by_name(&spi_bus_type, NULL, _exist_dev_name);
-	if (d != NULL) {
-		spi_unregister_device(to_spi_device(d));
-	}
-
-	created_ecp5_spi_dev = spi_new_device(_spi_master, &ecp5_spi_device);
-	if (!created_ecp5_spi_dev)
-	{
-		pr_err("ECP5: can't register spi device\n");
-		return (-ENODEV);
-	}
-#endif
 
 	pr_info("ECP5: driver successfully inited\n");
 	return (0);
@@ -434,12 +376,6 @@ static void __exit ecp5_sspi_exit(void)
 	pr_info("ECP5: driver exiting\n");
 
 	spi_unregister_driver(&ecp5_driver);
-
-#ifdef _SPIDEV_REPLACE_
-	spi_unregister_device(created_ecp5_spi_dev);
-
-	spi_new_device(_spi_master, &generic_spi_device);
-#endif
 
 	pr_info("ECP5: driver successfully exited\n");
 }
