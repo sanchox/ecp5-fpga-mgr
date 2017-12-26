@@ -15,8 +15,6 @@
 *
 ************************************************************************/
 #include <linux/stddef.h>
-#include <linux/slab.h>
-#include <linux/delay.h>
 
 extern unsigned char *data_mem;
 

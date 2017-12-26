@@ -3,10 +3,11 @@
 #include <linux/spi/spi.h>
 #include <linux/slab.h>
 #include <linux/delay.h>
+
 #include <linux/gpio.h>
 #include <../arch/arm/mach-mx6/board-mx6_ecp5com.h>
 
-extern struct spi_device *current_programming_spi_dev;
+extern struct spi_device *current_programming_ecp5;
 
 unsigned char *rx_tx_buff = NULL;
 
@@ -103,7 +104,6 @@ int dbgu_init()
 void dbgu_putint(int debugCode, int debugCode2)
 {
 	pr_info("debug %d %d\n", debugCode, debugCode2);
-	msleep(1);
 }
 
 /***********************************************************************
@@ -369,7 +369,7 @@ int TRANS_transmitBytes(unsigned char *trBuffer, int trCount)
 	{
 		rx_tx_buff[i] = trBuffer[i];
 	}
-	res = spi_write(current_programming_spi_dev, rx_tx_buff, n_bytes);
+	res = spi_write(current_programming_ecp5, rx_tx_buff, n_bytes);
 
 
 //	for (i = 0; (i < n_bytes); )
@@ -410,7 +410,7 @@ int TRANS_receiveBytes(unsigned char *rcBuffer, int rcCount)
 	int n_bytes = rcCount >> 3;
 //	char buf[255];
 
-	res = spi_read(current_programming_spi_dev, rx_tx_buff, n_bytes);
+	res = spi_read(current_programming_ecp5, rx_tx_buff, n_bytes);
 
 
 //	for (i = 0; (i < n_bytes) && (i < 8); ++i)
