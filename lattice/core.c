@@ -642,7 +642,7 @@ int proc_TRANS(unsigned char *bufAlgo, unsigned int bufAlgoSize,
 	unsigned int bufAlgoIndex = 0;
 	short int flag_mask = 0;
 	short int flag_transin = 0;
-	int byteNum;
+	int byteNum = 0;
 	short int retVal = 0;
 	unsigned int mismatch = 0;	
 	int temp;

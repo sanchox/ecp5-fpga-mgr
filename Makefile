@@ -4,7 +4,7 @@ PWD  := $(shell pwd)
 ARCH ?= arm
 CROSS_COMPILE ?= arm-linux-gnueabihf-
 #CROSS_COMPILE ?= /opt/freescale/usr/local/gcc-4.6.2-glibc-2.13-linaro-multilib-2011.12/fsl-linaro-toolchain/bin/arm-none-linux-gnueabi-
-KDIR ?= /home/sanchox/linux-3.0.35/
+KDIR ?= ../linux-3.0.35/
 
 MODULE_NAME = ecp5_sspi
 
@@ -29,9 +29,17 @@ default:
 clean:
 	$(MAKE) -C $(KDIR) M=$(PWD) clean
 	
-insmod_ko_on_kondor_ax: default
-	sshpass -p "root" scp -o StrictHostKeyChecking=no ecp5_sspi.ko root@192.168.222.192:/lib/modules/3.0.35-2666-gbdde708/test/ecp5_sspi.ko
-	sshpass -p "root" ssh -o StrictHostKeyChecking=no root@192.168.222.192 "chmod a+x /lib/modules/3.0.35-2666-gbdde708/test/ecp5_sspi.ko"
-	sshpass -p "root" ssh -o StrictHostKeyChecking=no root@192.168.222.192 "modprobe -r ecp5_sspi"
-	sshpass -p "root" ssh -o StrictHostKeyChecking=no root@192.168.222.192 "modprobe ecp5_sspi"
+MODULE_KO := $(MODULE_NAME).ko
+DEVBOARD_LOCAL_IP := 192.168.222.192
+DEVBOARD_USER := root
+DEVBOARD_AUTH := $(DEVBOARD_USER)@$(DEVBOARD_LOCAL_IP)
+DEVBOARD_USER_PASSWORD := root
+DEVBOARD_MODPROBE_PATH := /lib/modules/3.0.35-2666-gbdde708/test
+DEVBOARD_MODULE_PATH := $(DEVBOARD_MODPROBE_PATH)/$(MODULE_KO)
+
+deploy_to_devboard: default
+	sshpass -p $(DEVBOARD_USER_PASSWORD) scp -o StrictHostKeyChecking=no $(MODULE_KO) $(DEVBOARD_AUTH):$(DEVBOARD_MODULE_PATH)
+	sshpass -p $(DEVBOARD_USER_PASSWORD) ssh -o StrictHostKeyChecking=no $(DEVBOARD_AUTH) "chmod a+x $(DEVBOARD_MODULE_PATH)"
+	sshpass -p $(DEVBOARD_USER_PASSWORD) ssh -o StrictHostKeyChecking=no $(DEVBOARD_AUTH) "modprobe -r $(MODULE_NAME)"
+	sshpass -p $(DEVBOARD_USER_PASSWORD) ssh -o StrictHostKeyChecking=no $(DEVBOARD_AUTH) "modprobe $(MODULE_NAME)"
 

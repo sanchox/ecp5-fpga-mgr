@@ -355,8 +355,8 @@ int TRANS_transmitBytes(unsigned char *trBuffer, int trCount)
 	int i = 0;
 	int res = 0;
 	int n_bytes = trCount >> 3;
-	char buf[255];
-	int len = 0;
+//	char buf[255];
+//	int len = 0;
 
 //	len = sprintf(buf, "%d --> transmit %u bytes, %d bits -->", seq , n_bytes, trCount);
 //	for (i = 0; (i < n_bytes) && (i < 8); ++i)
@@ -408,7 +408,7 @@ int TRANS_receiveBytes(unsigned char *rcBuffer, int rcCount)
 	int i = 0;
 	int res = 0;
 	int n_bytes = rcCount >> 3;
-	char buf[255];
+//	char buf[255];
 
 	res = spi_read(current_programming_spi_dev, rx_tx_buff, n_bytes);
 

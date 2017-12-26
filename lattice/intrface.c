@@ -109,7 +109,7 @@ extern unsigned char *data_mem;
 
 	int algoInit()
 	{
-		int res = 1;
+		//int res = 1;
 
 		/************************************************************************
 		* Start of design-dependent implementation
@@ -322,47 +322,47 @@ extern unsigned char *data_mem;
 		*********************************************************************/
 		int i,j;
 
-		pr_info("lattice_impl_set_deta_ptr:\n");
-		for (i = 0; i < 1024;){
-			char buf[1024];
-			int len = 0;
-			for (j = 0; j < 16; ++j, ++i)
-			{
-				len += sprintf(buf + len,"%02x",setDataPtr[i]);
-			}
-			pr_info("%s", buf);
-			msleep(1);
-		}
-		print_hex_dump_bytes(NULL, DUMP_PREFIX_NONE, setDataPtr, 1024);
-		msleep(1);
-
-		pr_info("lattice_impl_deta_ptr:\n");
-		for (i = 0; i < 1024;){
-			char buf[1024];
-			int len = 0;
-			for (j = 0; j < 16; ++j, ++i)
-			{
-				len += sprintf(buf + len,"%02x",dataPtr[i]);
-			}
-			pr_info("%s", buf);
-			msleep(1);
-		}
-		print_hex_dump_bytes(NULL, DUMP_PREFIX_NONE, dataPtr, 1024);
-		msleep(1);
-
-		pr_info("module_deta_mem:\n");
-		for (i = 0; i < 1024;){
-			char buf[1024];
-			int len = 0;
-			for (j = 0; j < 16; ++j, ++i)
-			{
-				len += sprintf(buf + len,"%02x",data_mem[i]);
-			}
-			pr_info("%s", buf);
-			msleep(1);
-		}
-		print_hex_dump_bytes(NULL, DUMP_PREFIX_NONE, data_mem, 1024);
-		msleep(1);
+//		pr_info("lattice_impl_set_deta_ptr:\n");
+//		for (i = 0; i < 1024;){
+//			char buf[1024];
+//			int len = 0;
+//			for (j = 0; j < 16; ++j, ++i)
+//			{
+//				len += sprintf(buf + len,"%02x",setDataPtr[i]);
+//			}
+//			pr_info("%s", buf);
+//			msleep(1);
+//		}
+//		print_hex_dump_bytes(NULL, DUMP_PREFIX_NONE, setDataPtr, 1024);
+//		msleep(1);
+//
+//		pr_info("lattice_impl_deta_ptr:\n");
+//		for (i = 0; i < 1024;){
+//			char buf[1024];
+//			int len = 0;
+//			for (j = 0; j < 16; ++j, ++i)
+//			{
+//				len += sprintf(buf + len,"%02x",dataPtr[i]);
+//			}
+//			pr_info("%s", buf);
+//			msleep(1);
+//		}
+//		print_hex_dump_bytes(NULL, DUMP_PREFIX_NONE, dataPtr, 1024);
+//		msleep(1);
+//
+//		pr_info("module_deta_mem:\n");
+//		for (i = 0; i < 1024;){
+//			char buf[1024];
+//			int len = 0;
+//			for (j = 0; j < 16; ++j, ++i)
+//			{
+//				len += sprintf(buf + len,"%02x",data_mem[i]);
+//			}
+//			pr_info("%s", buf);
+//			msleep(1);
+//		}
+//		print_hex_dump_bytes(NULL, DUMP_PREFIX_NONE, data_mem, 1024);
+//		msleep(1);
 
 		d_isDataInput = 1;
 		return 1;
