@@ -74,6 +74,8 @@ ssize_t ecp5_sspi_algo_read(struct file *fp, char __user *ubuf, size_t len,
 	if (copy_to_user(ubuf, ecp5_info->algo_mem + *offp, len) != 0 )
 	        return (-EFAULT);
 
+	*offp += len;
+
 	return (len);
 }
 
@@ -91,6 +93,8 @@ ssize_t ecp5_sspi_data_read(struct file *fp, char __user *ubuf, size_t len,
 	if (copy_to_user(ubuf, ecp5_info->data_mem + *offp, len) != 0 )
 	        return (-EFAULT);
 
+	*offp += len;
+
 	return (len);
 }
 
@@ -98,9 +102,10 @@ ssize_t ecp5_sspi_algo_write(struct file *fp, const char __user *ubuf, size_t le
 		loff_t *offp)
 {
 	struct ecp5 *ecp5_info = fp->private_data;
+	ssize_t size = max_t(ssize_t, len + *offp, ecp5_info->algo_size);
 
 	ecp5_info->algo_size = len + *offp;
-	ecp5_info->algo_mem = krealloc(ecp5_info->algo_mem, len, GFP_KERNEL);
+	ecp5_info->algo_mem = krealloc(ecp5_info->algo_mem, size, GFP_KERNEL);
 	if (!ecp5_info->algo_mem)
 	{
 		pr_err("ECP5: can't allocate enough memory\n");
@@ -109,6 +114,9 @@ ssize_t ecp5_sspi_algo_write(struct file *fp, const char __user *ubuf, size_t le
 	if (copy_from_user(ecp5_info->algo_mem + *offp, ubuf, len) != 0)
 		return (-EFAULT);
 
+	ecp5_info->algo_size = size;
+	*offp += len;
+
 	return (len);
 }
 
@@ -116,9 +124,9 @@ ssize_t ecp5_sspi_data_write(struct file *fp, const char __user *ubuf, size_t le
 		loff_t *offp)
 {
 	struct ecp5 *ecp5_info = fp->private_data;
+	ssize_t size = max_t(ssize_t, len + *offp, ecp5_info->data_size);
 
-	ecp5_info->data_size = len + *offp;
-	ecp5_info->data_mem = krealloc(ecp5_info->data_mem, len, GFP_KERNEL);
+	ecp5_info->data_mem = krealloc(ecp5_info->data_mem, size, GFP_KERNEL);
 	if (!ecp5_info->data_mem)
 	{
 		pr_err("ECP5: can't allocate enough memory\n");
@@ -127,20 +135,86 @@ ssize_t ecp5_sspi_data_write(struct file *fp, const char __user *ubuf, size_t le
 	if (copy_from_user(ecp5_info->data_mem + *offp, ubuf, len) != 0)
 		return (-EFAULT);
 
-//	pr_info("data_on_write");
-//	int i,j;
-//	for (i = 0; i < 1024;){
-//		char buf[1024];
-//		int l = 0;
-//		for (j = 0; j < 16; ++j, ++i)
-//		{
-//			l += sprintf(buf + l,"%02x",data_mem[i]);
-//		}
-//		pr_info("%s", buf);
-//		msleep(1);
-//	}
+	ecp5_info->data_size = size;
+	*offp += len;
 
 	return (len);
+}
+
+loff_t ecp5_sspi_algo_lseek(struct file *fp, loff_t off, int whence)
+{
+	struct ecp5 *ecp5_info = fp->private_data;
+
+        loff_t newpos;
+        uint32_t size;
+
+        size = ecp5_info->algo_size;
+
+        switch(whence) {
+
+        case SEEK_SET:
+                newpos = off;
+                break;
+
+        case SEEK_CUR:
+                newpos = fp->f_pos + off;
+                break;
+
+        case SEEK_END:
+                newpos = size + off;
+                break;
+
+        default:
+                return (-EINVAL);
+        }
+
+        if (newpos < 0)
+                return (-EINVAL);
+
+        if (newpos > size)
+                newpos = size;
+
+        fp->f_pos = newpos;
+
+        return (newpos);
+}
+
+loff_t ecp5_sspi_data_lseek(struct file *fp, loff_t off, int whence)
+{
+	struct ecp5 *ecp5_info = fp->private_data;
+
+        loff_t newpos;
+        uint32_t size;
+
+        size = ecp5_info->data_size;
+
+        switch(whence) {
+
+        case SEEK_SET:
+                newpos = off;
+                break;
+
+        case SEEK_CUR:
+                newpos = fp->f_pos + off;
+                break;
+
+        case SEEK_END:
+                newpos = size + off;
+                break;
+
+        default:
+                return (-EINVAL);
+        }
+
+        if (newpos < 0)
+                return (-EINVAL);
+
+        if (newpos > size)
+                newpos = size;
+
+        fp->f_pos = newpos;
+
+        return (newpos);
 }
 
 struct file_operations algo_fops = {
@@ -149,7 +223,8 @@ struct file_operations algo_fops = {
 	.write = ecp5_sspi_algo_write,
 	.open = ecp5_sspi_algo_open,
 	.release = ecp5_sspi_algo_release,
-	.llseek = no_llseek
+	.llseek = ecp5_sspi_algo_lseek,
+	//.llseek = no_llseek
 };
 
 struct file_operations data_fops = {
@@ -158,7 +233,8 @@ struct file_operations data_fops = {
 	.write = ecp5_sspi_data_write,
 	.open = ecp5_sspi_data_open,
 	.release = ecp5_sspi_data_release,
-	.llseek = no_llseek
+	.llseek = ecp5_sspi_data_lseek,
+	//.llseek = no_llseek
 };
 
 
