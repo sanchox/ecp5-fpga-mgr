@@ -218,8 +218,6 @@ int SPI_init()
 		++n_retries;
 	}
 
-//	pr_info("n_retries = %d\n",n_retries);
-
 	// programn high
 	gpio_set_value(KONDOR_SPI_FPGA_PROGRAMN, true);
 
@@ -237,8 +235,6 @@ int SPI_init()
 		}
 		++n_retries;
 	}
-
-//	pr_info("n_retries = %d\n",n_retries);
 
 	// wait at least 50 ms after toggling programn
 	msleep(100);
@@ -355,36 +351,12 @@ int TRANS_transmitBytes(unsigned char *trBuffer, int trCount)
 	int i = 0;
 	int res = 0;
 	int n_bytes = trCount >> 3;
-//	char buf[255];
-//	int len = 0;
-
-//	len = sprintf(buf, "%d --> transmit %u bytes, %d bits -->", seq , n_bytes, trCount);
-//	for (i = 0; (i < n_bytes) && (i < 8); ++i)
-//	{
-//		len += sprintf(buf + len, " %02x", trBuffer[i]);
-//	}
-//	len += sprintf(buf + len, " -->");
 
 	for (i = 0; i < n_bytes; ++i)
 	{
 		rx_tx_buff[i] = trBuffer[i];
 	}
 	res = spi_write(current_programming_ecp5, rx_tx_buff, n_bytes);
-
-
-//	for (i = 0; (i < n_bytes); )
-//	{
-//		if (i >= 8) break;
-//		int len = sprintf(buf, "%d --> transmit %u bytes, %d bits -->", seq, n_bytes, trCount);
-//		int j = 0;
-//		for (j = 0; (i < n_bytes) && (j < 8); ++j)
-//		{
-//			len += sprintf(buf + len, " %02x", rx_tx_buff[i++]);
-//		}
-//		pr_info("%s", buf);
-//	}
-//	msleep(1);
-//	seq++;
 
 	return (!res);
 }
@@ -408,39 +380,14 @@ int TRANS_receiveBytes(unsigned char *rcBuffer, int rcCount)
 	int i = 0;
 	int res = 0;
 	int n_bytes = rcCount >> 3;
-//	char buf[255];
 
 	res = spi_read(current_programming_ecp5, rx_tx_buff, n_bytes);
-
-
-//	for (i = 0; (i < n_bytes) && (i < 8); ++i)
-//	{
-//		len += sprintf(buf + len, " %02x", rx_tx_buff[i]);
-//	}
-//	len += sprintf(buf + len, " -->");
 
 
 	for (i = 0; i < n_bytes; ++i)
 	{
 		rcBuffer[i] = rx_tx_buff[i];
 	}
-
-
-//	for (i = 0; (i < n_bytes); )
-//	{
-//		if (i >= 8) break;
-//		int len = sprintf(buf, "%d --> receive %u bytes, %d bits -->", seq, n_bytes, rcCount);
-//		int j = 0;
-//		for (j = 0; (i < n_bytes) && (j < 8); ++j)
-//		{
-//			len += sprintf(buf + len, " %02x", rcBuffer[i++]);
-//		}
-//		pr_info("%s", buf);
-//	}
-//	msleep(1);
-//	seq++;
-	//dev_printk(KERN_DEBUG, &(current_programming_spi_dev->dev), buf);
-
 
 	return (!res);
 }
