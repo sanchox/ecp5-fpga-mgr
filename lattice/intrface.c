@@ -130,7 +130,7 @@ extern unsigned char *data_mem;
 		************************************************************************/
 		
 //
-//		pr_info("Algo dump begin -->\n");
+//		dev_info(dev, "Algo dump begin -->\n");
 //
 //		while (res)
 //		{
@@ -145,12 +145,12 @@ extern unsigned char *data_mem;
 //				//buf[i] = byte;
 //				len += sprintf(buf + len, "%02x", byte);
 //			}
-//			pr_info("%s\n",buf);
+//			dev_info(dev, "%s\n",buf);
 //			//print_hex_dump_bytes("", DUMP_PREFIX_NONE, buf, i);
 //			msleep(1);
 //		}
 //
-//		pr_info("<-- Algo dump end\n");
+//		dev_info(dev, "<-- Algo dump end\n");
 //
 //		algoIndex = 0;
 
@@ -171,7 +171,7 @@ extern unsigned char *data_mem;
 		
 		*byteOut = algoPtr[algoIndex];
 		algoIndex ++;
-//		pr_info("algo_byte: %02x", *byteOut);
+//		dev_info(dev, "algo_byte: %02x", *byteOut);
 		return 1;
 
 		/************************************************************************
@@ -318,9 +318,9 @@ extern unsigned char *data_mem;
 		/********************************************************************
 		* End of design-dependent implementation
 		*********************************************************************/
-		int i,j;
+		//int i,j;
 
-//		pr_info("lattice_impl_set_deta_ptr:\n");
+//		dev_info(dev, "lattice_impl_set_deta_ptr:\n");
 //		for (i = 0; i < 1024;){
 //			char buf[1024];
 //			int len = 0;
@@ -328,13 +328,13 @@ extern unsigned char *data_mem;
 //			{
 //				len += sprintf(buf + len,"%02x",setDataPtr[i]);
 //			}
-//			pr_info("%s", buf);
+//			dev_info(dev, "%s", buf);
 //			msleep(1);
 //		}
 //		print_hex_dump_bytes(NULL, DUMP_PREFIX_NONE, setDataPtr, 1024);
 //		msleep(1);
 //
-//		pr_info("lattice_impl_deta_ptr:\n");
+//		dev_info(dev, "lattice_impl_deta_ptr:\n");
 //		for (i = 0; i < 1024;){
 //			char buf[1024];
 //			int len = 0;
@@ -342,13 +342,13 @@ extern unsigned char *data_mem;
 //			{
 //				len += sprintf(buf + len,"%02x",dataPtr[i]);
 //			}
-//			pr_info("%s", buf);
+//			dev_info(dev, "%s", buf);
 //			msleep(1);
 //		}
 //		print_hex_dump_bytes(NULL, DUMP_PREFIX_NONE, dataPtr, 1024);
 //		msleep(1);
 //
-//		pr_info("module_deta_mem:\n");
+//		dev_info(dev, "module_deta_mem:\n");
 //		for (i = 0; i < 1024;){
 //			char buf[1024];
 //			int len = 0;
@@ -356,7 +356,7 @@ extern unsigned char *data_mem;
 //			{
 //				len += sprintf(buf + len,"%02x",data_mem[i]);
 //			}
-//			pr_info("%s", buf);
+//			dev_info(dev, "%s", buf);
 //			msleep(1);
 //		}
 //		print_hex_dump_bytes(NULL, DUMP_PREFIX_NONE, data_mem, 1024);
@@ -497,7 +497,7 @@ extern unsigned char *data_mem;
 		*byteOut = dataPtr[dataIndex];
 		dataIndex++;
 
-		//pr_info("dataGetByte: %02x\n", *byteOut);
+		//dev_info(dev, "dataGetByte: %02x\n", *byteOut);
 		//msleep(1);
 
 		/********************************************************************
@@ -508,7 +508,7 @@ extern unsigned char *data_mem;
 			putChunk(checksumUnit, (unsigned int) (*byteOut) );
 		if(incCurrentAddr)
 			d_currentAddress ++;
-//		pr_info("data_byte: %02x", *byteOut);
+//		dev_info(dev, "data_byte: %02x", *byteOut);
 		return PROC_COMPLETE;
 	}
 

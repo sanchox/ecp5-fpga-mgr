@@ -1,22 +1,36 @@
-#include <linux/fs.h>
-#include <linux/errno.h>
-#include <linux/miscdevice.h>
-#include <linux/sysfs.h>
-#include <linux/slab.h>
-#include <linux/delay.h>
-#include <linux/mutex.h>
+/*
+ * FPGA Manager Driver for Lattice ECP5.
+ *
+ *  Copyright (c) 2018 Aleksandr Gusarov
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; version 2 of the License.
+ *
+ * This driver adds support to the FPGA manager for configuring the SRAM of
+ * Lattice ECP5 FPGAs through slave SPI.
+ */
 
-#include <asm/uaccess.h>
-#include <asm-generic/errno-base.h>
-#include <asm-generic/errno.h>
+#include <linux/module.h>
+#include <linux/delay.h>
+
+#include <linux/fs.h>
+#include <linux/miscdevice.h>
+#include <linux/uaccess.h>
+
+#include <linux/of_gpio.h>
 
 #include <linux/spi/spi.h>
 
 #include "lattice/SSPIEm.h"
 
-struct ecp5
+struct ecp5_fpga_priv
 {
 	struct spi_device *spi;
+	struct gpio_desc *done;
+	struct gpio_desc *init_n;
+	struct gpio_desc *program_n;
+
 	int programming_result;
 
 	int algo_size;
@@ -31,22 +45,181 @@ struct ecp5
 };
 
 static DEFINE_MUTEX(programming_lock);
-struct spi_device *current_programming_ecp5;
+struct ecp5_fpga_priv *current_programming_ecp5;
+
+#define ECP5_SPI_MAX_SPEED 25000000 /* Hz */
+#define ECP5_SPI_MIN_SPEED 1000000 /* Hz */
+
+#define ECP5_SPI_RESET_DELAY 1 /* us (>200ns) */
+#define ECP5_SPI_HOUSEKEEPING_DELAY 1200 /* us */
+
+#define ECP5_SPI_NUM_ACTIVATION_BYTES DIV_ROUND_UP(49, 8)
+
+#define GPIO(bank, nr) (((bank) - 1) * 32 + (nr))
+
+#define CFG0          GPIO(1, 6)
+#define CFG1          GPIO(1, 7)
+
+#define FPGA_DONE     GPIO(1, 8)
+#define FPGA_INITN    GPIO(1, 9)
+#define FPGA_PROGRAMN GPIO(7, 11)
+#define SPI_CS0       GPIO(5, 12)
+
+unsigned char *rx_tx_buff = NULL;
+
+int ecp5_reset_and_sspi_init()
+{
+	struct device *dev = &current_programming_ecp5->spi->dev;
+	int n_retries = 0;
+
+	rx_tx_buff = kzalloc(4096, GFP_KERNEL);
+	if (!rx_tx_buff)
+	{
+		dev_err(dev, "can't allocate enough memory for rx_tx_buf\n");
+		return (0);
+	}
+
+	gpio_request(CFG0,"sysfs");
+	gpio_request(CFG1,"sysfs");
+
+	gpio_request(FPGA_DONE,"sysfs");
+	gpio_request(FPGA_INITN,"sysfs");
+	gpio_request(FPGA_PROGRAMN,"sysfs");
+	gpio_request(SPI_CS0,"sysfs");
+	gpio_direction_output(SPI_CS0, 1);
+
+	// set FPGA SPI slave mode, set SPI mux to redirect FPGA to ECSPI2 ARM pins instead of SPI flash
+	gpio_direction_output(CFG0, true);
+	gpio_direction_output(CFG1, false);
+
+	// programn low
+	gpio_direction_output(FPGA_PROGRAMN, false);
+
+	// hold it...
+	msleep(1);	// min 55 ns
+
+	// wait until initn goes low
+	gpio_direction_input(FPGA_INITN);
+
+	n_retries = 0;
+	while (n_retries < 100)
+	{
+		int initn = 0;
+
+		msleep(1);
+		initn = gpio_get_value(FPGA_INITN);
+		if (!initn)
+		{
+			break;
+		}
+		++n_retries;
+	}
+
+	// programn high
+	gpio_set_value(FPGA_PROGRAMN, true);
+
+	// wait until initn goes high
+	n_retries = 0;
+	while (n_retries < 100)
+	{
+		int initn = 0;
+
+		msleep(1);
+		initn = gpio_get_value(FPGA_INITN);
+		if (initn)
+		{
+			break;
+		}
+		++n_retries;
+	}
+
+	// wait at least 50 ms after toggling programn
+	msleep(100);
+
+	return (0);
+}
+
+int lattice_spi_transmission_final()
+{
+	kfree(rx_tx_buff);
+
+	gpio_export(CFG0, 1);
+	gpio_export(CFG1, 1);
+	gpio_export(FPGA_DONE, 1);
+	gpio_export(FPGA_INITN, 1);
+	gpio_export(FPGA_PROGRAMN, 1);
+	gpio_export(SPI_CS0, 1);
+
+	gpio_free(CFG0);
+	gpio_free(CFG1);
+	gpio_free(FPGA_DONE);
+	gpio_free(FPGA_INITN);
+	gpio_free(FPGA_PROGRAMN);
+	gpio_free(SPI_CS0);
+
+	return (0);
+}
+
+int lattice_spi_transmit(unsigned char *trBuffer, int trCount)
+{
+	int i = 0;
+	int res = 0;
+	int n_bytes = trCount >> 3;
+
+	for (i = 0; i < n_bytes; ++i)
+	{
+		rx_tx_buff[i] = trBuffer[i];
+	}
+	res = spi_write(current_programming_ecp5->spi, rx_tx_buff, n_bytes);
+
+	return (!res);
+}
+
+int lattice_spi_receive(unsigned char *rcBuffer, int rcCount)
+{
+	int i = 0;
+	int res = 0;
+	int n_bytes = rcCount >> 3;
+
+	res = spi_read(current_programming_ecp5->spi, rx_tx_buff, n_bytes);
+
+
+	for (i = 0; i < n_bytes; ++i)
+	{
+		rcBuffer[i] = rx_tx_buff[i];
+	}
+
+	return (!res);
+}
+
+int lattice_spi_pull_cs_low(unsigned char channel)
+{
+	gpio_set_value(SPI_CS0, 0);
+	return 1;
+}
+
+int lattice_spi_pull_cs_high(unsigned char channel)
+{
+	gpio_set_value(SPI_CS0, 1);
+	return 1;
+}
+
 
 /*
  * File operations
  */
 int ecp5_sspi_algo_open(struct inode *inode, struct file *fp)
 {
-	struct ecp5 *ecp5_info = container_of(fp->private_data, struct ecp5, algo_char_device);
+	struct ecp5_fpga_priv *priv = container_of(fp->private_data, struct ecp5_fpga_priv, algo_char_device);
+	struct device *dev = &priv->spi->dev;
 
-	if (!mutex_trylock(&ecp5_info->algo_lock))
+	if (!mutex_trylock(&priv->algo_lock))
 	{
-		pr_err("ECP5: trying to open algo device while it already locked");
+		dev_err(dev, "ECP5: trying to open algo device while it already locked");
 		return(-EBUSY);
 	}
 
-	fp->private_data = ecp5_info;
+	fp->private_data = priv;
 
 	return (0);
 }
@@ -54,7 +227,7 @@ int ecp5_sspi_algo_open(struct inode *inode, struct file *fp)
 
 int ecp5_sspi_algo_release(struct inode *inode, struct file *fp)
 {
-	struct ecp5 *ecp5_info = fp->private_data;
+	struct ecp5_fpga_priv *ecp5_info = fp->private_data;
 
 	mutex_unlock(&ecp5_info->algo_lock);
 
@@ -63,15 +236,16 @@ int ecp5_sspi_algo_release(struct inode *inode, struct file *fp)
 
 int ecp5_sspi_data_open(struct inode *inode, struct file *fp)
 {
-	struct ecp5 *ecp5_info = container_of(fp->private_data, struct ecp5, data_char_device);
+	struct ecp5_fpga_priv *priv = container_of(fp->private_data, struct ecp5_fpga_priv, data_char_device);
+	struct device *dev = &priv->spi->dev;
 
-	if (!mutex_trylock(&ecp5_info->data_lock))
+	if (!mutex_trylock(&priv->data_lock))
 	{
-		pr_err("ECP5: trying to open data device while it already locked");
+		dev_err(dev, "ECP5: trying to open data device while it already locked");
 		return(-EBUSY);
 	}
 
-	fp->private_data = ecp5_info;
+	fp->private_data = priv;
 
 	return (0);
 }
@@ -79,9 +253,9 @@ int ecp5_sspi_data_open(struct inode *inode, struct file *fp)
 
 int ecp5_sspi_data_release(struct inode *inode, struct file *fp)
 {
-	struct ecp5 *ecp5_info = fp->private_data;
+	struct ecp5_fpga_priv *priv = fp->private_data;
 
-	mutex_unlock(&ecp5_info->data_lock);
+	mutex_unlock(&priv->data_lock);
 
 	return (0);
 }
@@ -89,15 +263,15 @@ int ecp5_sspi_data_release(struct inode *inode, struct file *fp)
 ssize_t ecp5_sspi_algo_read(struct file *fp, char __user *ubuf, size_t len,
 		loff_t *offp)
 {
-	struct ecp5 *ecp5_info = fp->private_data;
+	struct ecp5_fpga_priv *priv = fp->private_data;
 
-	if (*offp > ecp5_info->algo_size)
+	if (*offp > priv->algo_size)
 		return (0);
 
-	if (*offp + len > ecp5_info->algo_size)
-		len = ecp5_info->algo_size - *offp;
+	if (*offp + len > priv->algo_size)
+		len = priv->algo_size - *offp;
 
-	if (copy_to_user(ubuf, ecp5_info->algo_mem + *offp, len) != 0 )
+	if (copy_to_user(ubuf, priv->algo_mem + *offp, len) != 0 )
 	        return (-EFAULT);
 
 	*offp += len;
@@ -108,15 +282,15 @@ ssize_t ecp5_sspi_algo_read(struct file *fp, char __user *ubuf, size_t len,
 ssize_t ecp5_sspi_data_read(struct file *fp, char __user *ubuf, size_t len,
 		loff_t *offp)
 {
-	struct ecp5 *ecp5_info = fp->private_data;
+	struct ecp5_fpga_priv *priv = fp->private_data;
 
-	if (*offp > ecp5_info->data_size)
+	if (*offp > priv->data_size)
 		return (0);
 
-	if (*offp + len > ecp5_info->data_size)
-		len = ecp5_info->data_size - *offp;
+	if (*offp + len > priv->data_size)
+		len = priv->data_size - *offp;
 
-	if (copy_to_user(ubuf, ecp5_info->data_mem + *offp, len) != 0 )
+	if (copy_to_user(ubuf, priv->data_mem + *offp, len) != 0 )
 	        return (-EFAULT);
 
 	*offp += len;
@@ -127,29 +301,31 @@ ssize_t ecp5_sspi_data_read(struct file *fp, char __user *ubuf, size_t len,
 ssize_t ecp5_sspi_algo_write(struct file *fp, const char __user *ubuf, size_t len,
 		loff_t *offp)
 {
-	struct ecp5 *ecp5_info = fp->private_data;
-	ssize_t size = max_t(ssize_t, len + *offp, ecp5_info->algo_size);
+	struct ecp5_fpga_priv *priv = fp->private_data;
+	struct device *dev = &priv->spi->dev;
 
-	ecp5_info->algo_size = len + *offp;
-	ecp5_info->algo_mem = krealloc(ecp5_info->algo_mem, size, GFP_KERNEL);
-	if (!ecp5_info->algo_mem)
+	ssize_t size = max_t(ssize_t, len + *offp, priv->algo_size);
+
+	priv->algo_size = len + *offp;
+	priv->algo_mem = krealloc(priv->algo_mem, size, GFP_KERNEL);
+	if (!priv->algo_mem)
 	{
-		pr_err("ECP5: can't allocate enough memory\n");
+		dev_err(dev, "ECP5: can't allocate enough memory\n");
 		return (-EFAULT);
 	}
 
 	if (!mutex_trylock(&programming_lock))
 	{
-		pr_err("ECP5: can't write to algo device while programming");
+		dev_err(dev, "ECP5: can't write to algo device while programming");
 		return(-EBUSY);
 	}
 
-	if (copy_from_user(ecp5_info->algo_mem + *offp, ubuf, len) != 0)
+	if (copy_from_user(priv->algo_mem + *offp, ubuf, len) != 0)
 		return (-EFAULT);
 
 	mutex_unlock(&programming_lock);
 
-	ecp5_info->algo_size = size;
+	priv->algo_size = size;
 	*offp += len;
 
 	return (len);
@@ -158,29 +334,31 @@ ssize_t ecp5_sspi_algo_write(struct file *fp, const char __user *ubuf, size_t le
 ssize_t ecp5_sspi_data_write(struct file *fp, const char __user *ubuf, size_t len,
 		loff_t *offp)
 {
-	struct ecp5 *ecp5_info = fp->private_data;
-	ssize_t size = max_t(ssize_t, len + *offp, ecp5_info->data_size);
+	struct ecp5_fpga_priv *priv = fp->private_data;
+	struct device *dev = &priv->spi->dev;
 
-	ecp5_info->data_mem = krealloc(ecp5_info->data_mem, size, GFP_KERNEL);
-	if (!ecp5_info->data_mem)
+	ssize_t size = max_t(ssize_t, len + *offp, priv->data_size);
+
+	priv->data_mem = krealloc(priv->data_mem, size, GFP_KERNEL);
+	if (!priv->data_mem)
 	{
-		pr_err("ECP5: can't allocate enough memory\n");
+		dev_err(dev, "ECP5: can't allocate enough memory\n");
 		return (-EFAULT);
 	}
 
 	if (!mutex_trylock(&programming_lock))
 	{
-		pr_err("ECP5: can't write to data device while programming");
+		dev_err(dev, "ECP5: can't write to data device while programming");
 		return(-EBUSY);
 	}
 
-	if (copy_from_user(ecp5_info->data_mem + *offp, ubuf, len) != 0)
+	if (copy_from_user(priv->data_mem + *offp, ubuf, len) != 0)
 		return (-EFAULT);
 
 	mutex_unlock(&programming_lock);
 
 
-	ecp5_info->data_size = size;
+	priv->data_size = size;
 	*offp += len;
 
 	return (len);
@@ -188,12 +366,12 @@ ssize_t ecp5_sspi_data_write(struct file *fp, const char __user *ubuf, size_t le
 
 loff_t ecp5_sspi_algo_lseek(struct file *fp, loff_t off, int whence)
 {
-	struct ecp5 *ecp5_info = fp->private_data;
+	struct ecp5_fpga_priv *priv = fp->private_data;
 
         loff_t newpos;
         uint32_t size;
 
-        size = ecp5_info->algo_size;
+        size = priv->algo_size;
 
         switch(whence) {
 
@@ -226,12 +404,12 @@ loff_t ecp5_sspi_algo_lseek(struct file *fp, loff_t off, int whence)
 
 loff_t ecp5_sspi_data_lseek(struct file *fp, loff_t off, int whence)
 {
-	struct ecp5 *ecp5_info = fp->private_data;
+	struct ecp5_fpga_priv *priv = fp->private_data;
 
         loff_t newpos;
         uint32_t size;
 
-        size = ecp5_info->data_size;
+        size = priv->data_size;
 
         switch(whence) {
 
@@ -283,8 +461,8 @@ struct file_operations data_fops = {
 
 ssize_t algo_size_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
-	struct ecp5 *dev_info = dev_get_drvdata(dev);
-	return (sprintf(buf, "%d\n", dev_info->algo_size));
+	struct ecp5_fpga_priv *priv = dev_get_drvdata(dev);
+	return (sprintf(buf, "%d\n", priv->algo_size));
 }
 
 static ssize_t algo_size_store(struct device *dev, struct device_attribute *attr, const char *buf, size_t count)
@@ -294,8 +472,8 @@ static ssize_t algo_size_store(struct device *dev, struct device_attribute *attr
 
 ssize_t data_size_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
-	struct ecp5 *dev_info = dev_get_drvdata(dev);
-	return (sprintf(buf, "%d\n", dev_info->data_size));
+	struct ecp5_fpga_priv *priv = dev_get_drvdata(dev);
+	return (sprintf(buf, "%d\n", priv->data_size));
 }
 
 static ssize_t data_size_store(struct device *dev, struct device_attribute *attr, const char *buf, size_t count)
@@ -305,45 +483,45 @@ static ssize_t data_size_store(struct device *dev, struct device_attribute *attr
 
 ssize_t program_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
-	struct ecp5 *dev_info = dev_get_drvdata(dev);
-	return (sprintf(buf, "%d\n", dev_info->programming_result));
+	struct ecp5_fpga_priv *priv = dev_get_drvdata(dev);
+	return (sprintf(buf, "%d\n", priv->programming_result));
 }
 
 static ssize_t program_store(struct device *dev, struct device_attribute *attr,
 		const char *buf, size_t count)
 {
-	struct ecp5 *dev_info = dev_get_drvdata(dev);
+	struct ecp5_fpga_priv *priv = dev_get_drvdata(dev);
 
 	if (!mutex_trylock(&programming_lock))
 	{
-		pr_warn("ECP5: can't lock programming mutex \n");
-		pr_info("ECP5: (maybe someone already programming your chip?)");
+		dev_warn(dev, "ECP5: can't lock programming mutex \n");
+		dev_dbg(dev, "ECP5: (maybe someone already programming your chip?)");
 		return (count);
 	}
 
-	current_programming_ecp5 = dev_info->spi;
+	current_programming_ecp5 = priv;
 
-	if (dev_info->spi != to_spi_device(dev)) {
-		pr_err("ECP5: Mystical error occurred\n");
+	if (priv->spi != to_spi_device(dev)) {
+		dev_err(dev, "ECP5: Mystical error occurred\n");
 	}
 
 	/* here we call lattice programming code */
 	/* 1 - preparing data*/
-	dev_info->programming_result = SSPIEm_preset(dev_info->algo_mem,
-			dev_info->algo_size, dev_info->data_mem,
-			dev_info->data_size);
+	priv->programming_result = SSPIEm_preset(priv->algo_mem,
+			priv->algo_size, priv->data_mem,
+			priv->data_size);
 	pr_debug("ECP5: SSPIEm_preset result %d\n",
-					dev_info->programming_result);
+					priv->programming_result);
 	/* 2 - programming here */
-	dev_info->programming_result = SSPIEm(0xFFFFFFFF);
+	priv->programming_result = SSPIEm(0xFFFFFFFF);
 
 	mutex_unlock(&programming_lock);
 
-	if (dev_info->programming_result != 2)
-		pr_err("ECP5: FPGA programming failed with code %d\n",
-				dev_info->programming_result);
+	if (priv->programming_result != 2)
+		dev_err(dev, "ECP5: FPGA programming failed with code %d\n",
+				priv->programming_result);
 	else
-		pr_info("ECP5: FPGA programming success\n");
+		dev_dbg(dev, "ECP5: FPGA programming success\n");
 
 	return (count);
 }
@@ -368,103 +546,131 @@ struct attribute_group ecp5_attr_group = {
 	.attrs = ecp5_attrs,
 };
 
-static int __devinit ecp5_probe(struct spi_device *spi)
+//static const struct fpga_manager_ops ecp5_fpga_ops = {
+//	.state = ecp5_fpga_ops_state,
+//	.write_init = ecp5_fpga_ops_write_init,
+//	.write = ecp5_fpga_ops_write,
+//	.write_complete = ecp5_fpga_ops_write_complete,
+//};
+
+static int ecp5_fpga_probe(struct spi_device *spi)
 {
-	int ret;
-	struct ecp5 *ecp5_info = NULL;
+	struct device *dev = &spi->dev;
+	struct ecp5_fpga_priv *priv = NULL;
 	unsigned char *algo_cdev_name = NULL;
 	unsigned char *data_cdev_name = NULL;
+	int ret;
 
-	pr_info("ECP5: device spi%d.%d probing\n", spi->master->bus_num, spi->chip_select);
+	pr_debug("ECP5: device spi%d.%d probing\n", spi->master->bus_num, spi->chip_select);
+
+	priv = devm_kzalloc(&spi->dev, sizeof(*priv), GFP_KERNEL);
+	if (!priv)
+		return (-ENOMEM);
+
+	spi_set_drvdata(spi, priv);
+
+	priv->spi = spi;
+
+	/* Check board setup data. */
+	if (spi->max_speed_hz > ECP5_SPI_MAX_SPEED) {
+		dev_err(dev, "SPI speed is too high, maximum speed is "
+			__stringify(ICE40_SPI_MAX_SPEED) "\n");
+		return -EINVAL;
+	}
+
+	if (spi->max_speed_hz < ECP5_SPI_MIN_SPEED) {
+		dev_err(dev, "SPI speed is too low, minimum speed is "
+			__stringify(ICE40_SPI_MIN_SPEED) "\n");
+		return -EINVAL;
+	}
+
+	if (spi->mode & SPI_CPHA) {
+		dev_err(dev, "Bad SPI mode, CPHA not supported\n");
+		return -EINVAL;
+	}
 
 	spi->bits_per_word = 8;
 	spi->mode = SPI_MODE_0;
-	spi->max_speed_hz = 30000000;
 	ret = spi_setup(spi);
 	if (ret < 0)
 		return (ret);
 
-	ecp5_info = devm_kzalloc(&spi->dev, sizeof(*ecp5_info), GFP_KERNEL);
-	if (!ecp5_info)
-		return (-ENOMEM);
+	priv->programming_result = 0;
 
-	spi_set_drvdata(spi, ecp5_info);
-	ecp5_info->spi = spi;
-	ecp5_info->programming_result = 0;
-
-	ecp5_info->algo_char_device.minor = MISC_DYNAMIC_MINOR;
+	priv->algo_char_device.minor = MISC_DYNAMIC_MINOR;
 	algo_cdev_name = kzalloc(64, GFP_KERNEL);
 	if (!algo_cdev_name) return (-ENOMEM);
 	sprintf(algo_cdev_name, "ecp5-spi%d.%d-algo", spi->master->bus_num, spi->chip_select);
-	ecp5_info->algo_char_device.name = algo_cdev_name;
-	ecp5_info->algo_char_device.fops = &algo_fops;
-	ret = misc_register(&ecp5_info->algo_char_device);
+	priv->algo_char_device.name = algo_cdev_name;
+	priv->algo_char_device.fops = &algo_fops;
+	ret = misc_register(&priv->algo_char_device);
 	if (ret) {
-		pr_err("ECP5: can't register firmware algo image device\n");
+		dev_err(dev, "ECP5: can't register firmware algo image device\n");
 		goto error_return;
 	}
-	mutex_init(&ecp5_info->algo_lock);
+	mutex_init(&priv->algo_lock);
 
-	ecp5_info->data_char_device.minor = MISC_DYNAMIC_MINOR;
+	priv->data_char_device.minor = MISC_DYNAMIC_MINOR;
 	data_cdev_name = kzalloc(64, GFP_KERNEL);
 	if (!data_cdev_name) return (-ENOMEM);
 	sprintf(data_cdev_name, "ecp5-spi%d.%d-data", spi->master->bus_num, spi->chip_select);
-	ecp5_info->data_char_device.name = data_cdev_name;
-	ecp5_info->data_char_device.fops = &data_fops;
-	ret = misc_register(&ecp5_info->data_char_device);
+	priv->data_char_device.name = data_cdev_name;
+	priv->data_char_device.fops = &data_fops;
+	ret = misc_register(&priv->data_char_device);
 	if (ret) {
-		pr_err("ECP5: can't register firmware data image device\n");
+		dev_err(dev, "ECP5: can't register firmware data image device\n");
 		goto error_return;
 	}
-	mutex_init(&ecp5_info->data_lock);
+	mutex_init(&priv->data_lock);
 
 	ret = sysfs_create_group(&spi->dev.kobj, &ecp5_attr_group);
 	if (ret)
 	{
-		pr_err("ECP5: failed to create attribute files\n");
+		dev_err(dev, "ECP5: failed to create attribute files\n");
 		goto error_return;
 	}
 
-	pr_info("ECP5: device spi%d.%d probed\n", spi->master->bus_num, spi->chip_select);
+	dev_dbg(dev, "ECP5: device spi%d.%d probed\n", spi->master->bus_num, spi->chip_select);
 
 	return (0);
 
 error_return:
 	kzfree(algo_cdev_name);
 	kzfree(data_cdev_name);
-	return (-ENOMEM);
+	return (ret);
 }
 
 
-static int __devexit ecp5_remove(struct spi_device *spi)
+static int ecp5_remove(struct spi_device *spi)
 {
+	struct device *dev = &spi->dev;
+	struct ecp5_fpga_priv *priv = spi_get_drvdata(spi);
 	int err_code;
-	struct ecp5 *ecp5_info = spi_get_drvdata(spi);
 
-	pr_info("ECP5: device spi%d.%d removing\n", spi->master->bus_num, spi->chip_select);
+	dev_info(dev, "ECP5: device spi%d.%d removing\n", spi->master->bus_num, spi->chip_select);
 
-	err_code = misc_deregister(&ecp5_info->algo_char_device);
+	err_code = misc_deregister(&priv->algo_char_device);
 	if(err_code) {
-		pr_err("ECP5: can't unregister firmware image device\n");
+		dev_err(dev, "ECP5: can't unregister firmware image device\n");
 		return (err_code);
 	}
-	kzfree(ecp5_info->algo_char_device.name);
-	mutex_destroy(&ecp5_info->algo_lock);
+	kzfree(priv->algo_char_device.name);
+	mutex_destroy(&priv->algo_lock);
 
-	err_code = misc_deregister(&ecp5_info->data_char_device);
+	err_code = misc_deregister(&priv->data_char_device);
 	if(err_code) {
-		pr_err("ECP5: can't unregister firmware image device\n");
+		dev_err(dev, "ECP5: can't unregister firmware image device\n");
 		return (err_code);
 	}
-	kzfree(ecp5_info->data_char_device.name);
-	mutex_destroy(&ecp5_info->data_lock);
+	kzfree(priv->data_char_device.name);
+	mutex_destroy(&priv->data_lock);
 
 	sysfs_remove_group(&spi->dev.kobj, &ecp5_attr_group);
 
-	kzfree(ecp5_info->algo_mem);
-	kzfree(ecp5_info->data_mem);
+	kzfree(priv->algo_mem);
+	kzfree(priv->data_mem);
 
-	pr_info("ECP5: device spi%d.%d removed\n", spi->master->bus_num, spi->chip_select);
+	dev_info(dev, "ECP5: device spi%d.%d removed\n", spi->master->bus_num, spi->chip_select);
 	return (0);
 }
 
@@ -479,17 +685,16 @@ static struct spi_driver ecp5_driver = {
 		.name	= "ecp5-driver",
 		.owner	= THIS_MODULE,
 	},
-	.id_table	= ecp5_ids,
-	.probe	= ecp5_probe,
-	//.remove	= ecp5_remove,
-	.remove	= __devexit_p(ecp5_remove),
+	.id_table = ecp5_ids,
+	.probe    = ecp5_fpga_probe,
+	.remove   = ecp5_remove,
 };
 
 module_spi_driver(ecp5_driver);
 
 
 /*
- * device initialization
+ * module initialization
  */
 static int __init ecp5_sspi_init(void)
 {
@@ -523,4 +728,4 @@ module_exit(ecp5_sspi_exit);
 MODULE_AUTHOR("STC Metrotek");
 MODULE_DESCRIPTION("Lattice ECP5 FPGA Slave SPI programming interface driver");
 MODULE_LICENSE("GPL");
-MODULE_ALIAS("ecp5_sspi");
+MODULE_ALIAS("ecp5-spi");

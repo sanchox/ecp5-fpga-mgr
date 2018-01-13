@@ -1,22 +1,7 @@
 #include "hardware.h"
 
-#include <linux/spi/spi.h>
 #include <linux/slab.h>
 #include <linux/delay.h>
-
-#include <linux/gpio.h>
-#include <../arch/arm/mach-mx6/board-mx6_ecp5com.h>
-
-extern struct spi_device *current_programming_ecp5;
-
-unsigned char *rx_tx_buff = NULL;
-
-#define KONDOR_SPI_CFG0	IMX_GPIO_NR(1, 6)
-#define KONDOR_SPI_CFG1	IMX_GPIO_NR(1, 7)
-#define KONDOR_SPI_FPGA_DONE	IMX_GPIO_NR(1, 8)
-#define KONDOR_SPI_FPGA_INITN	IMX_GPIO_NR(1, 9)
-#define KONDOR_SPI_FPGA_PROGRAMN	IMX_GPIO_NR(7, 11)
-#define KONDOR_ECSPI2_CS0	IMX_GPIO_NR(5, 12)
 
 #define RESULT_OK	1
 #define RESULT_ERROR	0
@@ -103,7 +88,7 @@ int dbgu_init()
 ************************************************************************/
 void dbgu_putint(int debugCode, int debugCode2)
 {
-	pr_info("debug %d %d\n", debugCode, debugCode2);
+
 }
 
 /***********************************************************************
@@ -172,78 +157,7 @@ unsigned char dataBuffer[1024];
 ************************************************************************/
 int SPI_init()
 {
-	int n_retries = 0;
-
-	seq = 0;
-
-	rx_tx_buff = kzalloc(4096, GFP_KERNEL);
-	if (!rx_tx_buff)
-	{
-		pr_err("can't allocate enough memory for rx_tx_buf\n");
-		return (0);
-	}
-
-	gpio_request(KONDOR_SPI_CFG0,"sysfs");
-	gpio_request(KONDOR_SPI_CFG1,"sysfs");
-	gpio_request(KONDOR_SPI_FPGA_DONE,"sysfs");
-	gpio_request(KONDOR_SPI_FPGA_INITN,"sysfs");
-	gpio_request(KONDOR_SPI_FPGA_PROGRAMN,"sysfs");
-	gpio_request(KONDOR_ECSPI2_CS0,"sysfs");
-	gpio_direction_output(KONDOR_ECSPI2_CS0, 1);
-
-	// set FPGA SPI slave mode, set SPI mux to redirect FPGA to ECSPI2 ARM pins instead of SPI flash
-	gpio_direction_output(KONDOR_SPI_CFG0, true);
-	gpio_direction_output(KONDOR_SPI_CFG1, false);
-
-	// programn low
-	gpio_direction_output(KONDOR_SPI_FPGA_PROGRAMN, false);
-
-	// hold it...
-	msleep(1);	// min 55 ns
-
-	// wait until initn goes low
-	gpio_direction_input(KONDOR_SPI_FPGA_INITN);
-
-	n_retries = 0;
-	while (n_retries < 100)
-	{
-		char initn =	0;
-
-		msleep(1);
-		initn = gpio_get_value(KONDOR_SPI_FPGA_INITN);
-		if (!initn)
-		{
-			break;
-		}
-		++n_retries;
-	}
-
-	// programn high
-	gpio_set_value(KONDOR_SPI_FPGA_PROGRAMN, true);
-
-	// wait until initn goes high
-	n_retries = 0;
-	while (n_retries < 100)
-	{
-		char initn =	0;
-
-		msleep(1);
-		initn = gpio_get_value(KONDOR_SPI_FPGA_INITN);
-		if (initn)
-		{
-			break;
-		}
-		++n_retries;
-	}
-
-	// wait at least 50 ms after toggling programn
-	msleep(100);
-
-	return RESULT_OK;
-
-error_return:
-	SPI_final();
-	return RESULT_ERROR;
+	return (RESULT_OK);
 }
 /************************************************************************
 * Function SPI_final()
@@ -261,22 +175,6 @@ error_return:
 ************************************************************************/
 int SPI_final()
 {
-	kfree(rx_tx_buff);
-
-	gpio_export(KONDOR_SPI_CFG0, 1);
-	gpio_export(KONDOR_SPI_CFG1, 1);
-	gpio_export(KONDOR_SPI_FPGA_DONE, 1);
-	gpio_export(KONDOR_SPI_FPGA_INITN, 1);
-	gpio_export(KONDOR_SPI_FPGA_PROGRAMN, 1);
-	gpio_export(KONDOR_ECSPI2_CS0, 1);
-
-	gpio_free(KONDOR_SPI_CFG0);
-	gpio_free(KONDOR_SPI_CFG1);
-	gpio_free(KONDOR_SPI_FPGA_DONE);
-	gpio_free(KONDOR_SPI_FPGA_INITN);
-	gpio_free(KONDOR_SPI_FPGA_PROGRAMN);
-	gpio_free(KONDOR_ECSPI2_CS0);
-
 	return (RESULT_OK);
 }
 
@@ -348,17 +246,7 @@ int wait(int a_msTimeDelay)
 ************************************************************************/
 int TRANS_transmitBytes(unsigned char *trBuffer, int trCount)
 {
-	int i = 0;
-	int res = 0;
-	int n_bytes = trCount >> 3;
-
-	for (i = 0; i < n_bytes; ++i)
-	{
-		rx_tx_buff[i] = trBuffer[i];
-	}
-	res = spi_write(current_programming_ecp5, rx_tx_buff, n_bytes);
-
-	return (!res);
+	return (1);
 }
 
 /************************************************************************
@@ -377,19 +265,7 @@ int TRANS_transmitBytes(unsigned char *trBuffer, int trCount)
 *********************************************************************/
 int TRANS_receiveBytes(unsigned char *rcBuffer, int rcCount)
 {
-	int i = 0;
-	int res = 0;
-	int n_bytes = rcCount >> 3;
-
-	res = spi_read(current_programming_ecp5, rx_tx_buff, n_bytes);
-
-
-	for (i = 0; i < n_bytes; ++i)
-	{
-		rcBuffer[i] = rx_tx_buff[i];
-	}
-
-	return (!res);
+	return (1);
 }
 
 /************************************************************************
@@ -408,8 +284,7 @@ int TRANS_receiveBytes(unsigned char *rcBuffer, int rcCount)
 **********************************************************************/	
 int TRANS_starttranx(unsigned char channel)
 {
-	gpio_set_value(KONDOR_ECSPI2_CS0, 0);
-	return 1;
+	return (1);
 }
 /************************************************************************
 * Function TRANS_endtranx()
@@ -427,8 +302,7 @@ int TRANS_starttranx(unsigned char channel)
 **********************************************************************/
 int TRANS_endtranx()
 {
-	gpio_set_value(KONDOR_ECSPI2_CS0, 1);
-	return 1;
+	return (1);
 }
 
 /************************************************************************
