@@ -2,6 +2,9 @@
 
 #define _HARDWARE_H_
 
+int lattice_spi_transmit(unsigned char *trBuffer, int trCount);
+int lattice_spi_receive(unsigned char *rcBuffer, int rcCount);
+
 /************************************************************************
 * 
 * Function Definition

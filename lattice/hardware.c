@@ -246,6 +246,8 @@ int wait(int a_msTimeDelay)
 ************************************************************************/
 int TRANS_transmitBytes(unsigned char *trBuffer, int trCount)
 {
+	if (lattice_spi_transmit(trBuffer, trCount))
+		return (0);
 	return (1);
 }
 
@@ -265,6 +267,8 @@ int TRANS_transmitBytes(unsigned char *trBuffer, int trCount)
 *********************************************************************/
 int TRANS_receiveBytes(unsigned char *rcBuffer, int rcCount)
 {
+	if (lattice_spi_receive(rcBuffer, rcCount))
+		return (0);
 	return (1);
 }
 
