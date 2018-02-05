@@ -546,7 +546,7 @@ int SSPIEm_process(unsigned char *bufAlgo, unsigned int bufAlgoSize)
 			break;
 		case WAIT:		/* process WAIT */
 			#ifdef	DEBUG_LEVEL_2
-			dbgu_putint(DBGU_L2_PROC, ENTER_WAIT);"Enter WAIT", 
+			dbgu_putint(DBGU_L2_PROC, ENTER_WAIT); /* Enter WAIT */
 			#endif
 			
 			/************************************************************************

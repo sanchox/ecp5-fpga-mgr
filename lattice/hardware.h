@@ -5,6 +5,9 @@
 int lattice_spi_transmit(unsigned char *trBuffer, int trCount);
 int lattice_spi_receive(unsigned char *rcBuffer, int rcCount);
 
+int lattice_spi_pull_cs_high();
+int lattice_spi_pull_cs_low();
+
 /************************************************************************
 * 
 * Function Definition
@@ -42,10 +45,10 @@ int TRANS_transceive_stream(int trCount, unsigned char *trBuffer,
 *************************************************************************/
 //#define	DEBUG_LEVEL_1	1
 #ifdef	DEBUG_LEVEL_1
-//#define	DEBUG_LEVEL_2	1
+#define	DEBUG_LEVEL_2	1
 #endif
 #ifdef	DEBUG_LEVEL_2
-//#define	DEBUG_LEVEL_3	1
+#define	DEBUG_LEVEL_3	1
 #endif
 
 /************************************************************************
@@ -59,11 +62,11 @@ int TRANS_transceive_stream(int trCount, unsigned char *trBuffer,
 #include "debug.h"
 int dbgu_init();
 void dbgu_putint(int debugCode, int debugCode2);
-//#define	DEBUG_LEVEL_2	1
+#define	DEBUG_LEVEL_2	1
 #endif
 
 #ifdef	DEBUG_LEVEL_2
-//#define	DEBUG_LEVEL_3	1
+#define	DEBUG_LEVEL_3	1
 #endif
 
 #endif

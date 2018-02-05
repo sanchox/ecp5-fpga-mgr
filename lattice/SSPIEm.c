@@ -47,11 +47,9 @@ int SSPIEm_preset(unsigned char *setAlgoPtr, unsigned int setAlgoSize,
 int SSPIEm(unsigned int algoID){
 	int retVal = 0;
 	retVal = SSPIEm_init(algoID);
-//	dev_info(dev, "#1 retVal = %d\n", retVal);
 	if(retVal <= 0)
 		return retVal;
 	retVal = SSPIEm_process(0,0);
-//	dev_info(dev, "#2 retVal = %d\n", retVal);
 	return retVal;
 }
 

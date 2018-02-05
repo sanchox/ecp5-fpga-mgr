@@ -9,3 +9,5 @@
 *.mod.c
 *.order
 *.mk
+*.swo
+*.swp

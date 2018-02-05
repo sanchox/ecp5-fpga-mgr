@@ -4,7 +4,7 @@
 #include "util.h"
 
 #define PROC_FAIL		0
-#define PROC_COMPLETE	1
+#define PROC_COMPLETE		1
 #define PROC_OVER		2
 
 /************************************************************************

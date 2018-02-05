@@ -34,6 +34,7 @@ struct lattice_fpga_sspi_firmware
 struct ecp5_fpga_priv
 {
 	struct spi_device *dev;
+	struct gpio_desc *cs;
 	struct gpio_desc *done;
 	struct gpio_desc *init;
 	struct gpio_desc *program;
@@ -46,25 +47,17 @@ struct ecp5_fpga_priv *current_programming_ecp5;
 #define ECP5_SPI_MAX_SPEED 30000000 /* Hz */
 #define ECP5_SPI_MIN_SPEED 1000000 /* Hz */
 
-//
-//int lattice_spi_init()
-//{
-//	gpio_direction_output(SPI_CS0, 1);
-//
-//	return (0);
-//}
-//
-//int lattice_spi_pull_cs_low(unsigned char channel)
-//{
-//	gpio_set_value(SPI_CS0, 0);
-//	return 1;
-//}
-//
-//int lattice_spi_pull_cs_high(unsigned char channel)
-//{
-//	gpio_set_value(SPI_CS0, 1);
-//	return 1;
-//}
+int lattice_spi_pull_cs_low()
+{
+	gpiod_set_value(current_programming_ecp5->cs, 1);
+	return 1;
+}
+
+int lattice_spi_pull_cs_high()
+{
+	gpiod_set_value(current_programming_ecp5->cs, 0);
+	return 1;
+}
 
 int lattice_spi_transmit(unsigned char *trBuffer, int trCount)
 {
@@ -78,7 +71,7 @@ int lattice_spi_transmit(unsigned char *trBuffer, int trCount)
 	}
 	res = spi_write(current_programming_ecp5->dev, current_programming_ecp5->rx_tx_buff, n_bytes);
 
-	return (!res);
+	return (res);
 }
 
 int lattice_spi_receive(unsigned char *rcBuffer, int rcCount)
@@ -89,13 +82,11 @@ int lattice_spi_receive(unsigned char *rcBuffer, int rcCount)
 
 	res = spi_read(current_programming_ecp5->dev, current_programming_ecp5->rx_tx_buff, n_bytes);
 
-
 	for (i = 0; i < n_bytes; ++i)
 	{
 		rcBuffer[i] = current_programming_ecp5->rx_tx_buff[i];
 	}
-
-	return (!res);
+	return (res);
 }
 
 static enum fpga_mgr_states ecp5_fpga_ops_state(struct fpga_manager *mgr)
@@ -119,28 +110,28 @@ static int ecp5_fpga_ops_write_init(struct fpga_manager *mgr,
 		return -ENOTSUPP;
 	}
 
-	/* assert PROGRAMN */
+	/* assert PROGRAM */
 	gpiod_set_value(priv->program, 1);
 
 	/* delay for at least 70ns - tDPPINT, */
 	/* this also more than 50ns - tPRGMRJ */
-	ndelay(70);
+	mdelay(100);
 
-	/* Check INITN is asserted i.e. the FPGA in initialization mode */
-	if (gpiod_get_value(priv->init)) {
-		dev_err(&dev->dev, "Device program failed, INITN is de-asserted\n");
+	/* Check INIT is asserted i.e. the FPGA in initialization mode */
+	if (!gpiod_get_value(priv->init)) {
+		dev_err(&dev->dev, "Device program failed, FPGA can't go to initialization mode\n");
 		return -EIO;
 	}
 
-	/* de-assert PROGRAMN */
+	/* de-assert PROGRAM */
 	gpiod_set_value(priv->program, 0);
 
 	/* delay for at least 55ns - tINITL */
-	ndelay(55);
+	mdelay(100);
 
-	/* Check INITN is de-asserted i.e. the FPGA in configuration mode */
+	/* Check INIT is de-asserted i.e. the FPGA in configuration mode */
 	if (gpiod_get_value(priv->init)) {
-		dev_err(&dev->dev, "Device program failed, INITN is asserted\n");
+		dev_err(&dev->dev, "Device program failed, FPGA can't go to configuration mode\n");
 		return -EIO;
 	}
 
@@ -171,6 +162,7 @@ static int ecp5_fpga_ops_write(struct fpga_manager *mgr,
 	}
 
 	current_programming_ecp5 = priv;
+
 
 	// here we call lattice programming code
 	// 1 - preparing data
@@ -220,6 +212,9 @@ static int ecp5_fpga_probe(struct spi_device *spi)
 	struct ecp5_fpga_priv *priv = NULL;
 	int ret;
 
+	struct fpga_manager *mgr;
+	struct fpga_image_info *info;
+
 	priv = devm_kzalloc(&spi->dev, sizeof(*priv), GFP_KERNEL);
 	if (!priv)
 		return -ENOMEM;
@@ -259,6 +254,13 @@ static int ecp5_fpga_probe(struct spi_device *spi)
 		return -EINVAL;
 	}
 
+	priv->cs = devm_gpiod_get(dev, "cs", GPIOD_OUT_LOW);
+	if (IS_ERR(priv->cs)) {
+		ret = PTR_ERR(priv->cs);
+		dev_err(dev, "Failed to get CS GPIO: %d\n", ret);
+		return ret;
+	}
+
 	/* Set up the GPIOs */
 	/* TODO: Make this GPIO's optional, and if they not present in DT,*/
 	/*       communicate to FPGA through SPI interface only */
@@ -269,7 +271,7 @@ static int ecp5_fpga_probe(struct spi_device *spi)
 		return ret;
 	}
 
-	priv->program = devm_gpiod_get(dev, "programn", GPIOD_OUT_LOW_OPEN_DRAIN);
+	priv->program = devm_gpiod_get(dev, "programn", GPIOD_OUT_LOW);
 	if (IS_ERR(priv->program)) {
 		ret = PTR_ERR(priv->program);
 		dev_err(dev, "Failed to get PROGRAMN GPIO: %d\n", ret);
@@ -285,8 +287,35 @@ static int ecp5_fpga_probe(struct spi_device *spi)
 	/* TODO: Support HOLDN signal */
 
 	/* Register with the FPGA manager */
-	return fpga_mgr_register(dev, "Lattice ECP5 FPGA Manager",
+	ret = fpga_mgr_register(dev, "Lattice ECP5 FPGA Manager",
 				 &ecp5_fpga_ops, priv);
+
+	if (ret)
+		return ret;
+
+	mgr = fpga_mgr_get(dev);
+
+	/* struct with information about the FPGA image to program. */
+	info = devm_kzalloc(dev, sizeof(*info), GFP_KERNEL);
+	if (!info)
+		return -ENOMEM;
+
+	/* flags indicates whether to do full or partial reconfiguration */
+	info->flags = 0;
+
+	/* Load the buffer to the FPGA */
+	ret = fpga_mgr_firmware_load(mgr, info, "ecp5_sspi_fw.img");
+
+	if (ret)
+		fpga_mgr_unregister(dev);
+
+	/* Release the FPGA manager */
+	fpga_mgr_put(mgr);
+
+	/* Deallocate the image info if you're done with it */
+	devm_kfree(dev, info);
+
+	return ret;
 }
 
 static int ecp5_fpga_remove(struct spi_device *spi)

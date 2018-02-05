@@ -67,7 +67,6 @@ unsigned int a_uiRowCount		= 0;
 **********************************************************************/
 int dbgu_init()
 {
-
 	return 1;
 }
 
@@ -88,7 +87,6 @@ int dbgu_init()
 ************************************************************************/
 void dbgu_putint(int debugCode, int debugCode2)
 {
-
 }
 
 /***********************************************************************
@@ -288,7 +286,7 @@ int TRANS_receiveBytes(unsigned char *rcBuffer, int rcCount)
 **********************************************************************/	
 int TRANS_starttranx(unsigned char channel)
 {
-	return (1);
+	return (lattice_spi_pull_cs_low());
 }
 /************************************************************************
 * Function TRANS_endtranx()
@@ -306,7 +304,7 @@ int TRANS_starttranx(unsigned char channel)
 **********************************************************************/
 int TRANS_endtranx()
 {
-	return (1);
+	return (lattice_spi_pull_cs_high());
 }
 
 /************************************************************************
