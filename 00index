@@ -1,0 +1,3 @@
+ - main.c : main code file for ecp5-fpga-mgr
+ - lattice/ : lattice provided ANSI C code for parse algo (.sea) and data (.sed)
+ - sspi_img_pack.py : script to pack .sea and .sed files into .img file
